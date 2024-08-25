@@ -83,9 +83,10 @@ def get_largest_files_windows(root_dir='D:\\'):
         #leave some space
         print(" ")
 
-def get_largest_files_linux(root_dir='/'):
+def get_largest_files_linux(root_dir='/home'):
     """Lists the five largest files in a specified directory on Linux."""
     file_sizes = []
+    path = root_dir
 
     def scan_directory(path):
         """Recursively scans directories to find file sizes."""
@@ -120,141 +121,124 @@ def monitor_cpu_usage():
     except KeyboardInterrupt:
         print("Stopped monitoring CPU usage.")
 
-def parse_auth_log(log_file):
-    """Parses the auth.log file to extract command usage details for Linux."""
-    if not os.path.exists(log_file):
-        print(f"Log file {log_file} not found. Skipping command usage parsing.")
-        return
 
+
+def read_auth_log(file_path):
     try:
-        with open(log_file, 'r') as file:
-            for line in file:
-                # Extract timestamp, user, and command from the log line
-                timestamp = re.search(r'\w+ \d+ \d+:\d+:\d+', line)
-                user = re.search(r'user (\w+)', line)
-                command = re.search(r'COMMAND=(.*)', line)
+        with open(file_path, 'r') as f:
+            return f.readlines()
+    except FileNotFoundError:
+        print(f"Log file not found at {file_path}")
+        return []
 
-                # If all elements are found, print the details
-                if timestamp and user and command:
-                    print(f"Timestamp: {timestamp.group()}")
-                    print(f"User: {user.group(1)}")
-                    print(f"Command: {command.group(1)}\n")
+def extract_commands(log_lines,log_file_path_linux):
+    """Parses the auth.log file to extract command usage details for Linux."""
+    try:
+        command_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+)\s+\S+\s+(\S+)\s+.*COMMAND=(.+)')
+    
+        print("Command usage found:")
+        for line in log_lines:
+            match = command_pattern.search(line)
+            if match:
+                timestamp, user, command = match.groups()
+                print(f"Timestamp: {timestamp}, User: {user}, Command: {command}")
 
     except FileNotFoundError:
-        print(f"Log file {log_file} not found.")
+        print(f"Log file { log_file_path_linux } not found.")
     except Exception as e:
         print(f"Error reading log file: {e}")
 
 def monitor_user_authentication_changes():
-    # """Monitor user authentication changes on Windows."""
-    # #monitoring user authentication changes
-    # ps_command = '''
-    # $ErrorActionPreference = "Stop"
-    # if (-NOT [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent().IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    #     $args = [System.Collections.ArrayList]@("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "& {Start-Process PowerShell -ArgumentList $args -Verb RunAs}")
-    #     Start-Process PowerShell -ArgumentList $args -Verb RunAs
-    #     exit
-    # }
-    # Get-WinEvent -LogName Security | Where-Object {
-    #     $_.Id -eq 4624 -or  # Successful logon
-    #     $_.Id -eq 4625 -or  # Failed logon
-    #     $_.Id -eq 4720 -or  # User account created
-    #     $_.Id -eq 4726 -or  # User account deleted
-    #     $_.Id -eq 4723      # Password changed
-    # } | Select-Object TimeCreated, Id, Message
-    # '''
-
-    # #script file
-    # script_path = 'temp_script.ps1'
-    # with open(script_path, 'w') as script_file:
-    #     script_file.write(ps_command)
-
-    # # Run the PowerShell script
-    # command = ['powershell', '-ExecutionPolicy', 'Bypass', '-File', script_path]
     
-    # try:
-    #     result = subprocess.run(command, capture_output=True, text=True, check=True)
-    #     print(result.stdout)
-    # except subprocess.CalledProcessError as e:
-    #     print(f"Error retrieving user changes: {e}")
-    # finally:
-    #     # Clean up temporary script file
-    #     if os.path.exists(script_path):
-    #         os.remove(script_path)
-    server = "localhost"
-    logtype = "Security"
-    flags = win32evtlog.EVENTLOG_FORWARDS_READ|win32evtlog.EVENTLOG_SEQUENTIAL_READ
-    failures = {}
+    def get_failed_login_attempts():
+    # Open the security event log
+        server = 'localhost'  # Local machine
+        log_type = 'Security'  # Type of event log
+        flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
+        event_log = win32evtlog.OpenEventLog(server, log_type)
 
-    def checkEvents():
-        
-            h = win32evtlog.OpenEventLog(server, logtype)
-            while True:
-                events = win32evtlog.ReadEventLog(h, flags)
-                if events:
-                    for event in events:
-                        if event.EventID == 4625:
-                            if event.stringInserts[0].startswith("S-1-5-21"):
-                                account = event.stringInserts[1]
-                                if account in failures:
-                                    failures[account] += 1
-                                else:
-                                    failures[account] = 1
+        failed_logins = []
+        total = 0
 
 
-                        else:
-                            break
-        
+        while total < 5:
+        # Fetch records
+            records = win32evtlog.ReadEventLog(event_log, flags, 0)
+            if not records:
+                break
 
-    checkEvents()
+            for record in records:
+            # Check if the event is a failed login attempt (Event ID 4625)
+                if record.EventID <= 4625:
+                    failed_logins.append(record)
+                    total += 1
+                    if total >= 5:
+                        break
 
-    for account in failures:
-        print("%s: %s failed logins" % (account, failures[account]))
+        win32evtlog.CloseEventLog(event_log)
+
+    # Print the first five failed login attempts
+        for event in failed_logins:
+            print(f"Event ID: {event.EventID}, Time: {event.TimeGenerated}, Source: {event.SourceName}")
+            print(f"User: {event.StringInserts[5]}, Failure Reason: {event.StringInserts[8]}")
+            print("-------")
+
+    get_failed_login_attempts()
 
         
 
 
 
 
-def monitor_user_changes_linux(log_file):
+def monitor_user_changes_linux(log_file_path_linux,log_lines):
     """Monitors user authentication changes in the auth.log file for Linux."""
-    if not os.path.exists(log_file):
-        print(f"Log file {log_file} not found. Skipping user authentication monitoring.")
-        return
-
-    try:
-      with open(log_file, 'r') as file:
-        for line in file:
-                # Extract timestamp from the log line
-            timestamp = re.search(r'\w+ \d+ \d+:\d+:\d+', line)
-
-                # Check for specific user change events and print details
-            if timestamp:
-                if 'new user' in line:
-                        print(f"New User Added at {timestamp.group()}")
-                elif 'deleted user' in line:
-                        print(f"User Deleted at {timestamp.group()}")
-                elif 'changed password' in line:
-                        print(f"Password Changed at {timestamp.group()}")
-                elif 'su ' in line:
-                        print(f"su Command Used at {timestamp.group()}")
-                elif 'sudo ' in line:
-                    if 'authentication failure' in line:
-                            print(f"ALERT! Failed sudo at {timestamp.group()} - Command: {line}")
-                    else:
-                            print(f"sudo Command Used at {timestamp.group()} - Command: {line}")
-
-    except FileNotFoundError:
-        print(f"Log file {log_file} not found.")
-    except Exception as e:
-        print(f"Error reading log file: {e}")
-
+    user_added_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+).*useradd.*(?:for user|new user):\s+(\S+)')
+    user_deleted_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+).*userdel.*(?:for user|deleted user):\s+(\S+)')
+    password_change_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+).*passwd.*(?:for user|password changed for):\s+(\S+)')
+    su_command_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+).*su:\s+session opened for user\s+(\S+)')
+    sudo_command_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+)\s+\S+\s+(\S+).*sudo.*COMMAND=(.+)')
+    failed_sudo_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+)\s+\S+\s+(\S+).*sudo.*authentication failure.*COMMAND=(.+)')
+    
+    print("\nUser Authentication Changes:")
+   
+    for line in log_lines:
+        
+        if user_added_match := user_added_pattern.search(line):
+            timestamp, user = user_added_match.groups()
+            print(f"New user added: Timestamp: {timestamp}, User: {user}")
+        
+        if user_deleted_match := user_deleted_pattern.search(line):
+            timestamp, user = user_deleted_match.groups()
+            print(f"User deleted: Timestamp: {timestamp}, User: {user}")
+        
+        if password_change_match := password_change_pattern.search(line):
+            timestamp, user = password_change_match.groups()
+            print(f"Password changed: Timestamp: {timestamp}, User: {user}")
+        
+        if su_command_match := su_command_pattern.search(line):
+            timestamp, user = su_command_match.groups()
+            print(f"su command used: Timestamp: {timestamp}, User: {user}")
+        
+        if sudo_command_match := sudo_command_pattern.search(line):
+            timestamp, user, command = sudo_command_match.groups()
+            print(f"sudo command used: Timestamp: {timestamp}, User: {user}, Command: {command}")
+        
+        if failed_sudo_match := failed_sudo_pattern.search(line):
+            timestamp, user, command = failed_sudo_match.groups()
+            print(f"ALERT! Failed sudo attempt: Timestamp: {timestamp}, User: {user}, Command: {command}")
+            
+            
 def main():
     # Specify the path to the auth.log file for Linux and a log file for Windows
     log_file_path_linux = '/var/log/auth.log'
-    log_file_path_windows = 'C:\\Path\\To\\Your\\Windows\\LogFile.log'  # Update this path
+    
+    log_lines = read_auth_log(log_file_path_linux)
+
 
     os_info = platform.system()
+
+    if os_info == "linux":
+        read_auth_log()
 
     while True:
         print("\nLog Analyzer Menu")
@@ -288,9 +272,9 @@ def main():
             if os_info == "Windows":
                 monitor_user_authentication_changes()
             else:
-                parse_auth_log(log_file_path_linux)
+                extract_commands(log_file_path_linux,log_lines)
         elif choice == '6' and os_info != "Windows":
-            monitor_user_changes_linux(log_file_path_linux)
+            monitor_user_changes_linux(log_file_path_linux,log_lines)
         elif choice == '7':
             monitor_cpu_usage()
         elif choice == '8':

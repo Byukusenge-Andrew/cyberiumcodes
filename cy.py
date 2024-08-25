@@ -20,7 +20,6 @@ import psutil
 import re
 import subprocess
 import time
-from win32 import win32evtlog
 
 
 
