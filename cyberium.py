@@ -115,38 +115,25 @@ def monitor_cpu_usage():
     print("Monitoring CPU usage every 10 seconds. Press Ctrl+C to stop.")
     try:
         while True:
-            cpu_usage = psutil.cpu_percent(interval=1)
+            cpu_usage = psutil.cpu_percent(interval=10)
             print(f"Current CPU Usage: {cpu_usage}%")
-            time.sleep(9)  # Sleep for 9 seconds for a 10-second refresh rate
+            time.sleep(9) 
     except KeyboardInterrupt:
         print("Stopped monitoring CPU usage.")
 
 
-
-def read_auth_log(file_path):
+def grep_sudo_commands(log_file_path):
     try:
-        with open(file_path, 'r') as f:
-            return f.readlines()
-    except FileNotFoundError:
-        print(f"Log file not found at {file_path}")
-        return []
-
-def extract_commands(log_lines,log_file_path_linux):
-    """Parses the auth.log file to extract command usage details for Linux."""
-    try:
-        command_pattern = re.compile(r'(\w+\s+\d+\s+\d+:\d+:\d+)\s+\S+\s+(\S+)\s+.*COMMAND=(.+)')
-    
-        print("Command usage found:")
-        for line in log_lines:
-            match = command_pattern.search(line)
-            if match:
-                timestamp, user, command = match.groups()
-                print(f"Timestamp: {timestamp}, User: {user}, Command: {command}")
+        with open(log_file_path, 'r') as file:
+            for line in file:
+                if 'sudo' in line and 'COMMAND=' in line:
+                    command_start = line.find('COMMAND=') + len('COMMAND=')
+                    sudo_command = line[command_start:].strip()
+                    print(sudo_command)
 
     except FileNotFoundError:
-        print(f"Log file { log_file_path_linux } not found.")
-    except Exception as e:
-        print(f"Error reading log file: {e}")
+        print(f"The file {log_file_path} was not found.")
+
 
 def monitor_user_authentication_changes():
     
@@ -162,13 +149,13 @@ def monitor_user_authentication_changes():
 
 
         while total < 5:
-        # Fetch records
+ 
             records = win32evtlog.ReadEventLog(event_log, flags, 0)
             if not records:
                 break
 
             for record in records:
-            # Check if the event is a failed login attempt (Event ID 4625)
+          
                 if record.EventID <= 4625:
                     failed_logins.append(record)
                     total += 1
@@ -177,7 +164,6 @@ def monitor_user_authentication_changes():
 
         win32evtlog.CloseEventLog(event_log)
 
-    # Print the first five failed login attempts
         for event in failed_logins:
             print(f"Event ID: {event.EventID}, Time: {event.TimeGenerated}, Source: {event.SourceName}")
             print(f"User: {event.StringInserts[5]}, Failure Reason: {event.StringInserts[8]}")
@@ -229,16 +215,18 @@ def monitor_user_changes_linux(log_file_path_linux,log_lines):
             
             
 def main():
-    # Specify the path to the auth.log file for Linux and a log file for Windows
+    
     log_file_path_linux = '/var/log/auth.log'
     
-    log_lines = read_auth_log(log_file_path_linux)
+
 
 
     os_info = platform.system()
 
     if os_info == "linux":
-        read_auth_log()
+        with open(log_file_path_linux, 'r') as file:
+            log_lines = file.readlines()
+            monitor_user_changes_linux(log_file_path_linux,log_lines)
 
     while True:
         print("\nLog Analyzer Menu")
@@ -255,7 +243,8 @@ def main():
         print("7. Monitor CPU Usage")
         print("8. Exit")
         
-        choice = input("Please choose an option: ")
+        print("input your choice: "); choice = input('> ')
+       
 
         if choice == '1':
             get_system_info()
@@ -265,14 +254,14 @@ def main():
             get_disk_info()
         elif choice == '4':
             if os_info == "Windows":
-                get_largest_files_windows()
+                get_largest_files_windows() 
             else:
                 get_largest_files_linux()
         elif choice == '5':
             if os_info == "Windows":
                 monitor_user_authentication_changes()
             else:
-                extract_commands(log_file_path_linux,log_lines)
+                grep_sudo_commands(log_file_path_linux)
         elif choice == '6' and os_info != "Windows":
             monitor_user_changes_linux(log_file_path_linux,log_lines)
         elif choice == '7':
